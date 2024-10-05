@@ -4,6 +4,7 @@ project:
 
 website:
   title: "魔狸アンテナ"
+  site-url: https://tanukima.github.io/glc/
   navbar:
     right:
       - icon: github
