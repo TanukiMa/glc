@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 # urledit.py
 # Version 1.11.0
 # Changes:
@@ -72,11 +73,12 @@ def add_url(db_name, url, title, owner, ownerurl, check_lastmodified, tag, tag_i
     cursor = conn.cursor()
     try:
         cursor.execute("""
-        INSERT INTO scraping_targets
-        (url, title, owner, ownerurl, check_lastmodified, tag, tag_id, tag_class, email_recipient, qmd_name)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO scraping_targets
+            (url, title, owner, ownerurl, check_lastmodified, tag, tag_id, tag_class, email_recipient, qmd_name)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (url, title, owner, ownerurl, check_lastmodified, tag, tag_id, tag_class, email_recipient, qmd_name))
         conn.commit()
+
         print(f"URLを追加しました: {url}")
 
         # Get the inserted id
@@ -100,13 +102,13 @@ def add_url(db_name, url, title, owner, ownerurl, check_lastmodified, tag, tag_i
         conn.commit()
 
         archive_url(db_name, target_id, url)
+
     except mysql.connector.Error as e:
         print(f"URLの追加またはアーカイブ中にエラーが発生しました: {e}")
         conn.rollback()
     finally:
         cursor.close()
         conn.close()
-
 
 
 
@@ -151,6 +153,7 @@ def edit_url(db_name, url, **kwargs):
         conn.close()
 
 
+
 def delete_url(db_name, url):
     conn = get_db_connection(db_name)
     if conn is None:
@@ -174,9 +177,10 @@ def delete_url(db_name, url):
 
         # Delete the main record from scraping_targets
         cursor.execute("DELETE FROM scraping_targets WHERE id = %s", (target_id,))
-
         conn.commit()
+
         print(f"URLを削除しました: {url}")
+
     except mysql.connector.Error as e:
         print(f"URLの削除中にエラーが発生しました: {e}")
         conn.rollback()
@@ -199,100 +203,6 @@ def list_urls(db_name):
     finally:
         cursor.close()
         conn.close()
-
-
-    except mysql.connector.Error as e:
-        print(f"URLの追加中にエラーが発生しました: {e}")
-        conn.rollback()
-    finally:
-        cursor.close()
-        conn.close()
-
-    with open(json_file, 'r') as file:
-        urls_data = json.load(file)
-
-    confirmed_urls = []
-    for url_data in urls_data:
-        if confirm_add(url_data):
-            confirmed_urls.append(url_data)
-        else:
-            print(f"{url_data['url']}の登録をスキップしました。")
-
-    for url_data in confirmed_urls:
-        conn = get_db_connection(db_name)
-        if conn is None:
-            return
-
-        cursor = conn.cursor()
-        try:
-            qmd_name = generate_qmd_name() if 'qmd_name' not in url_data or not url_data['qmd_name'] else url_data['qmd_name']
-            check_lastmodified = url_data.get('check_lastmodified')
-            # 文字列またはブール値としてcheck_lastmodifiedを処理
-            if isinstance(check_lastmodified, str):
-                check_lastmodified = check_lastmodified.lower() == 'true'
-            elif check_lastmodified is None:
-                check_lastmodified = False
-
-            cursor.execute("""
-            INSERT INTO scraping_targets
-            (url, title, owner, ownerurl, check_lastmodified, tag, tag_id, tag_class, email_recipient, qmd_name)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, (
-                url_data['url'],
-                url_data['title'],
-                url_data['owner'],
-                url_data['ownerurl'],
-                check_lastmodified,
-                url_data.get('tag'),
-                url_data.get('tag_id'),
-                url_data.get('tag_class'),
-                url_data.get('email_recipient'),
-                qmd_name
-            ))
-            conn.commit()
-
-            # Get the inserted id
-            cursor.execute("SELECT LAST_INSERT_ID()")
-            target_id = cursor.fetchone()[0]
-
-            # Get initial content
-            cursor.execute("SELECT agent FROM user_agents ORDER BY RAND() LIMIT 1")
-            user_agent = cursor.fetchone()[0]
-            last_content, last_update, content_hash = get_initial_content(
-                url_data['url'], 
-                check_lastmodified, 
-                url_data.get('tag'), 
-                url_data.get('tag_id'), 
-                url_data.get('tag_class'), 
-                user_agent
-            )
-
-            # If check_lastmodified is False, store the hash of the scraped content
-            if not check_lastmodified and last_content:
-                last_content = calculate_sha3_512(last_content)
-
-            # Insert into scraping_results
-            cursor.execute("""
-                INSERT INTO scraping_results (target_id, last_content, last_update, content_hash)
-                VALUES (%s, %s, %s, %s)
-            """, (target_id, last_content, last_update, content_hash))
-            conn.commit()
-
-            print(f"URLを追加しました: {url_data['url']}")
-
-            # savepagenow への登録
-            archive_url(db_name, target_id, url_data['url'])
-
-        except mysql.connector.Error as e:
-            print(f"URLの追加中にエラーが発生しました: {e}")
-            conn.rollback()
-        finally:
-            cursor.close()
-            conn.close()
-
-    print("JSONファイルからのURL追加が完了しました。")
-
-
 
 
 
@@ -332,18 +242,6 @@ def main():
         list_urls(args.db)
 
 
-    elif args.action == 'add_from_json':
-        if not args.json_file:
-            print("JSONファイルを指定してください。")
-            return
-        add_urls_from_json(args.db, args.json_file)
-    elif args.action == 'export_json':
-        if not args.json_file:
-            print("エクスポート先のJSONファイルを指定してください。")
-            return
-        export_to_json(args.db, args.json_file)
 
 if __name__ == "__main__":
-    main()
-
     main()

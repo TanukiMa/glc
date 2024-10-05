@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # urljson.py
-# Version 1.0.0
+# Version 1.1.0
 # JSON import and export functions for URL management
+# 修正内容: 新しいqmd_nameが生成された際に、対応するビューを作成する機能を追加
 
 import json
 import argparse
@@ -10,6 +11,7 @@ from glc_spn import archive_and_save
 import time
 import os
 from dotenv import load_dotenv
+import mysql.connector
 
 load_dotenv()
 
@@ -36,6 +38,29 @@ def archive_url(db_name, target_id, url):
     last_archive_time = time.time()
     return archive_url
 
+def create_qmd_view(db_name, qmd_name):
+    conn = get_db_connection(db_name)
+    if conn is None:
+        return
+    cursor = conn.cursor()
+    try:
+        view_name = f"{qmd_name}_view"
+        query = f"""
+        CREATE OR REPLACE VIEW {view_name} AS
+        SELECT qmd_name, owner, ownerurl, title, url, last_update
+        FROM updated_targets_view
+        WHERE qmd_name = '{qmd_name}';
+        """
+        cursor.execute(query)
+        conn.commit()
+        print(f"ビュー '{view_name}' を作成しました。")
+    except mysql.connector.Error as err:
+        print(f"ビューの作成中にエラーが発生しました: {err}")
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
+
 def add_urls_from_json(db_name, json_file):
     with open(json_file, 'r') as file:
         urls_data = json.load(file)
@@ -56,7 +81,6 @@ def add_urls_from_json(db_name, json_file):
             qmd_name = generate_qmd_name() if 'qmd_name' not in url_data or not url_data['qmd_name'] else url_data['qmd_name']
             check_lastmodified = url_data.get('check_lastmodified')
             
-            # 文字列またはブール値としてcheck_lastmodifiedを処理
             if isinstance(check_lastmodified, str):
                 check_lastmodified = check_lastmodified.lower() == 'true'
             elif check_lastmodified is None:
@@ -80,11 +104,9 @@ def add_urls_from_json(db_name, json_file):
             ))
             conn.commit()
 
-            # Get the inserted id
             cursor.execute("SELECT LAST_INSERT_ID()")
             target_id = cursor.fetchone()[0]
 
-            # Get initial content
             cursor.execute("SELECT agent FROM user_agents ORDER BY RAND() LIMIT 1")
             user_agent = cursor.fetchone()[0]
             last_content, last_update, content_hash = get_initial_content(
@@ -96,11 +118,9 @@ def add_urls_from_json(db_name, json_file):
                 user_agent
             )
 
-            # If check_lastmodified is False, store the hash of the scraped content
             if not check_lastmodified and last_content:
                 last_content = calculate_sha3_512(last_content)
 
-            # Insert into scraping_results
             cursor.execute("""
                 INSERT INTO scraping_results (target_id, last_content, last_update, content_hash)
                 VALUES (%s, %s, %s, %s)
@@ -109,8 +129,10 @@ def add_urls_from_json(db_name, json_file):
 
             print(f"URLを追加しました: {url_data['url']}")
 
-            # savepagenow への登録
             archive_url(db_name, target_id, url_data['url'])
+
+            # 新しいqmd_nameに対応するビューを作成
+            create_qmd_view(db_name, qmd_name)
 
         except Exception as e:
             print(f"URLの追加中にエラーが発生しました: {e}")
@@ -130,7 +152,6 @@ def export_to_json(db_name, output_file):
         cursor.execute("SELECT * FROM scraping_targets")
         urls = cursor.fetchall()
         with open(output_file, 'w', encoding='utf-8') as f:
-            # ensure_ascii=False を指定し、日本語をそのまま出力
             json.dump(urls, f, ensure_ascii=False, indent=2)
         print(f"URLデータをJSONファイルにエクスポートしました: {output_file}")
     except Exception as e:
