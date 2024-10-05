@@ -1,0 +1,19 @@
+project:
+  type: website
+  output-dir: docs
+
+website:
+  title: "魔狸アンテナ"
+  navbar:
+    right:
+      - icon: github
+        href: https://github.com/TanukiMa
+      - icon: twitter
+        href: https://twitter.com/Matanuki
+
+format:
+  html:
+    theme: simplex
+    css: styles.css
+    toc: true
+

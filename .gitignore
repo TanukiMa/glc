@@ -1,0 +1,6 @@
+*~
+.quarto
+*.qmd
+__pycache__/
+.quarto/
+*.json
