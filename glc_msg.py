@@ -1,13 +1,8 @@
-# バージョン 4.2.0
-# - updated_targets_viewの修正に合わせて関数を更新
-# - ページネーションのlimitを1000000に設定
-# - キャッシュのmaxsizeを128に設定
-# - 未使用の load_toot_config() 関数を削除
-# - Mastodon、Bluesky、Twitterへの投稿処理を修正
-
 #!/usr/bin/env python3
-
 # glc_msg.py
+# Version 4.3.0
+# - 処理の順序を変更
+# - 各URLの更新確認後にメッセージ投稿を行い、その後QMDファイルを生成するように修正
 
 import yaml
 import os
@@ -35,14 +30,17 @@ def load_msg_config():
 MSG_CONFIG = load_msg_config()
 TOP_PAGE_FILENAME = MSG_CONFIG['Files']['top_page_filename']
 
-def execute_query(db_name, query):
+def execute_query(db_name, query, params=None):
     conn = get_db_connection(db_name)
     if not conn:
         debug_print(f"データベース接続に失敗しました: {db_name}")
         return None
     cursor = conn.cursor(dictionary=True)
     try:
-        cursor.execute(query)
+        if params:
+            cursor.execute(query, params)
+        else:
+            cursor.execute(query)
         result = cursor.fetchall()
         debug_print(f"クエリ実行成功: {query}")
         return result
@@ -53,7 +51,6 @@ def execute_query(db_name, query):
         cursor.close()
         conn.close()
 
-
 @lru_cache(maxsize=128)
 def get_updated_targets(db_name, offset=0, limit=1000000):
     query = """
@@ -63,7 +60,6 @@ def get_updated_targets(db_name, offset=0, limit=1000000):
     LIMIT %s OFFSET %s
     """
     return execute_query(db_name, query, (limit, offset))
-
 
 def get_qmd_targets(db_name):
     return execute_query(db_name, "SELECT * FROM qmd_view")
@@ -106,7 +102,7 @@ def generate_quarto_content(updated_targets, qmd_targets):
 
 def generate_qmd_content(updated_targets, qmd_name, title, owner):
     debug_print(f"QMDコンテンツ生成開始: {qmd_name}")
-    qmd_content = MSG_CONFIG['indivisualQuartoContent']['individual_page_yaml'].format(owner=owner, title=title)
+    qmd_content = MSG_CONFIG['IndividualQuartoContent']['individual_page_yaml'].format(owner=owner, title=title)
     qmd_content += "\n"
 
     relevant_updates = [target for target in updated_targets if target['qmd_name'] == qmd_name]
@@ -122,10 +118,8 @@ def generate_qmd_content(updated_targets, qmd_name, title, owner):
     debug_print(f"QMDコンテンツ生成完了: {qmd_name}")
     return qmd_content
 
-# 以下の関数は変更なし
 def format_message(target_info, formatted_time):
     return MSG_CONFIG['Message']['format'].format(time=formatted_time, owner=target_info['owner'], title=target_info['title'], url=target_info['url'])
-
 
 def send_toot(message, no_toot=False):
     if no_toot:
@@ -173,39 +167,14 @@ async def send_tweet(message, no_toot=False):
         else:
             print(f"Twitterへの投稿に失敗しました: {str(e)}", f"送信内容: {message}", file=sys.stderr)
 
-
-async def generate_quarto_output(db_name, no_toot=False):
+async def process_updates(db_name, no_toot=False):
     try:
-        debug_print("Quarto出力生成開始")
+        debug_print("更新処理開始")
         
+        # 1. 各URLの更新を確認（この部分はglc.pyで行われるため、ここでは省略）
+
+        # 2. Mastodon, Twitter, Blueskyへのメッセージ投稿
         updated_targets = get_updated_targets(db_name)
-        if not updated_targets:
-            print("更新されたターゲットの情報が取得できませんでした。", file=sys.stderr)
-            return
-
-        qmd_targets = get_qmd_targets(db_name)
-        if not qmd_targets:
-            print("QMDターゲットの情報が取得できませんでした。", file=sys.stderr)
-            return
-
-        quarto_content = generate_quarto_content(updated_targets, qmd_targets)
-        if quarto_content is None:
-            print("Quartoコンテンツの生成に失敗しました。", file=sys.stderr)
-            return
-
-        with open(TOP_PAGE_FILENAME, 'w', encoding='utf-8') as f:
-            f.write(quarto_content)
-        debug_print(f"{TOP_PAGE_FILENAME} ファイルが生成されました。")
-
-        for target in qmd_targets:
-            qmd_content = generate_qmd_content(updated_targets, target['qmd_name'], target['title'], target['owner'])
-            if qmd_content:
-                with open(f"{target['qmd_name']}.qmd", 'w', encoding='utf-8') as f:
-                    f.write(qmd_content)
-                debug_print(f"{target['qmd_name']}.qmd ファイルが生成されました。")
-            else:
-                debug_print(f"{target['qmd_name']}.qmd ファイルは更新履歴がないため生成されませんでした。")
-
         if updated_targets:
             for update in updated_targets:
                 formatted_time = sort_key(update).strftime("%Y年%m月%d日 %H時%M分(日本時間)")
@@ -214,22 +183,38 @@ async def generate_quarto_output(db_name, no_toot=False):
                 send_bluesky(message, no_toot)
                 await send_tweet(message, no_toot)
 
-        debug_print("Quarto出力生成完了")
-    except Exception as e:
-        print(f"予期せぬエラーが発生しました: {e}", file=sys.stderr)
+        # 3. 個別のqmd_name.qmdファイルの作成
+        qmd_targets = get_qmd_targets(db_name)
+        if qmd_targets:
+            for target in qmd_targets:
+                qmd_content = generate_qmd_content(updated_targets, target['qmd_name'], target['title'], target['owner'])
+                if qmd_content:
+                    with open(f"{target['qmd_name']}.qmd", 'w', encoding='utf-8') as f:
+                        f.write(qmd_content)
+                    debug_print(f"{target['qmd_name']}.qmd ファイルが生成されました。")
+                else:
+                    debug_print(f"{target['qmd_name']}.qmd ファイルは更新履歴がないため生成されませんでした。")
 
-    except Exception as e:
-        print(f"予期せぬエラーが発生しました: {e}", file=sys.stderr)
+        # 4. qmd_viewの更新（この部分はデータベース側で自動的に行われるため、ここでの特別な処理は不要）
+
+        # 5. top_page_filename.qmdの作成
+        quarto_content = generate_quarto_content(updated_targets, qmd_targets)
+        if quarto_content:
+            with open(TOP_PAGE_FILENAME, 'w', encoding='utf-8') as f:
+                f.write(quarto_content)
+            debug_print(f"{TOP_PAGE_FILENAME} ファイルが生成されました。")
+
+        debug_print("更新処理完了")
     except Exception as e:
         print(f"予期せぬエラーが発生しました: {e}", file=sys.stderr)
 
 async def main():
-    parser = argparse.ArgumentParser(description="Generate Quarto output and send toots, Bluesky posts, and tweets for GLC")
+    parser = argparse.ArgumentParser(description="Process updates, send messages, and generate Quarto output for GLC")
     parser.add_argument("--db", required=True, help="Database name")
     parser.add_argument("--no-toot", action="store_true", help="Don't actually send toots, Bluesky posts, or tweets, just print the message")
     args = parser.parse_args()
 
-    await generate_quarto_output(args.db, args.no_toot)
+    await process_updates(args.db, args.no_toot)
 
 if __name__ == "__main__":
     import asyncio

@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
 # glc.py
-# Version 2.1.0
-# - Refactored to use logging module and fixed --debug option
+# Version 2.2.0
+# - 更新確認後にglc_msg.pyを呼び出すように修正
 
-import os, sys, time, argparse, random, requests, json, unicodedata
+import os
+import sys
+import time
+import argparse
+import random
+import requests
+import json
+import unicodedata
 from datetime import datetime, timezone
 import mysql.connector
 from contextlib import contextmanager
 from glc_utils import get_db_connection, is_within_time_range, calculate_sha3_512, compress_scraping_results, get_initial_content
 from glc_spn import archive_and_save
-from glc_msg import generate_quarto_output
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 import asyncio
 import logging
+import subprocess
 
 load_dotenv()
 
@@ -108,10 +115,18 @@ async def process_targets(db_name, force=False, no_toot=False):
         updated_target_ids = [process_target(db_name, target, user_agent) for target in targets if process_target(db_name, target, user_agent)]
         if updated_target_ids:
             logger.debug(f"Updated targets: {updated_target_ids}")
-            await generate_quarto_output(db_name, no_toot)
+            await run_glc_msg(db_name, no_toot)
         compress_scraping_results(db_name)
     except Exception as e:
         logger.error(f"処理中に予期せぬエラーが発生しました: {e}")
+
+async def run_glc_msg(db_name, no_toot):
+    cmd = [sys.executable, 'glc_msg.py', '--db', db_name]
+    if no_toot:
+        cmd.append('--no-toot')
+    
+    process = await asyncio.create_subprocess_exec(*cmd)
+    await process.communicate()
 
 async def main():
     parser = argparse.ArgumentParser(description="Webページの更新をチェックし、更新があればアーカイブと通知を行います。")
