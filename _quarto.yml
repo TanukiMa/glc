@@ -5,13 +5,13 @@ project:
 website:
   title: "魔狸アンテナ"
   site-url: https://tanukima.github.io/glc/
+  google-analytics: "G-4G27MWJGGT"
   navbar:
     right:
       - icon: github
         href: https://github.com/TanukiMa
       - icon: twitter
         href: https://twitter.com/Matanuki
-  google-analytics: "G-4G27MWJGGT"
 
 format:
   html:
