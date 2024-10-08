@@ -1,151 +1,108 @@
 #!/usr/bin/env python3
 # glc_qmd.py
-# Version 2.0.0
-# Quartoファイル生成のデバッグ用スクリプト
+# Version 1.0.0
+# - QMDファイル生成機能を担当
 
-import os
-import sys
-import argparse
-import json
-from datetime import datetime
-import pytz
-from dotenv import load_dotenv
-import os
+import yaml
+import logging
 from collections import defaultdict
-from glc_utils import get_db_connection
-import mysql.connector
+from glc_utils import get_db_connection, sort_key
 
-def get_db_connection(db_name):
-    load_dotenv()  # .env ファイルから環境変数を読み込む
-    try:
-        conn = mysql.connector.connect(
-            host=os.getenv('DB_HOST'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASSWORD'),
-            database=db_name
-        )
-        return conn
-    except mysql.connector.Error as e:
-        print(f"データベース接続エラー: {e}", file=sys.stderr)
-        return None
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-def get_updated_targets(db_name):
-    """updated_targets_view から更新されたターゲット情報を取得する"""
-    conn = get_db_connection(db_name)
-    if conn is None:
-        return None
+def load_msg_config():
+    with open('msg.config', 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)
 
-    cursor = conn.cursor(dictionary=True)
-    try:
-        query = """
-        SELECT utv.*, st.qmd_name
-        FROM updated_targets_view utv
-        JOIN scraping_targets st ON utv.id = st.id
-        ORDER BY utv.last_update DESC
-        """
-        cursor.execute(query)
-        results = cursor.fetchall()
-        return results
-    except Exception as e:
-        print(f"更新されたターゲット情報取得エラー: {e}", file=sys.stderr)
-        return None
-    finally:
-        cursor.close()
-        conn.close()
+MSG_CONFIG = load_msg_config()
+TOP_PAGE_FILENAME = MSG_CONFIG['Files']['top_page_filename']
 
-def get_qmd_targets(db_name):
-    """qmd_view からターゲット情報を取得する"""
-    conn = get_db_connection(db_name)
-    if conn is None:
-        return None
+def generate_qmd_content(updated_targets, qmd_name, title, owner):
+    qmd_content = MSG_CONFIG['IndividualQuartoContent']['individual_page_yaml'].format(owner=owner, title=title)
+    qmd_content += "\n"
+    qmd_content += MSG_CONFIG['IndividualQuartoContent']['individual_page_header'].format(owner=owner, title=title)
+    qmd_content += "\n\n"
 
-    cursor = conn.cursor(dictionary=True)
-    try:
-        query = "SELECT * FROM qmd_view"
-        cursor.execute(query)
-        results = cursor.fetchall()
-        return results
-    except Exception as e:
-        print(f"QMDターゲット情報取得エラー: {e}", file=sys.stderr)
-        return None
-    finally:
-        cursor.close()
-        conn.close()
+    relevant_updates = [target for target in updated_targets if target['qmd_name'] == qmd_name]
+    for target in sorted(relevant_updates, key=sort_key, reverse=True):
+        formatted_time = sort_key(target).strftime('%Y年%m月%d日 %H時%M分(日本時間)')
+        archive_link = f"[🪦]({target['archive_url']}){{.external target=\"_blank\"}}" if target.get('archive_url') else ""
+        qmd_content += f"* {formatted_time}、[{target['owner']}]({target['ownerurl']}){{.external target=\"_blank\"}} の [{target['title']}]({target['url']}){{.external target=\"_blank\"}} が更新されました。{archive_link}\n"
 
-def generate_quarto_content(updated_targets, qmd_targets):
-    """Quartoコンテンツを生成する"""
-    quarto_content = '''---
-title: 魔狸アンテナ
-format:
-  html:
-    toc: true
-    toc-expand: true
-    embed-resources: true
-lang: ja
----
+    return qmd_content
 
-# 最新の更新情報
+def generate_top_page_content(updated_targets, qmd_targets):
+    content = MSG_CONFIG['QuartoContent']['top_page_yaml'] + "\n\n"
+    content += MSG_CONFIG['QuartoContent']['top_page_header'] + "\n"
 
-'''
-
-    jst = pytz.timezone('Asia/Tokyo')
     grouped_results = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
-
     for target in updated_targets:
-        last_update_jst = target['last_update'].astimezone(jst)
-        year = last_update_jst.year
-        month = last_update_jst.month
-        day = last_update_jst.day
-        grouped_results[year][month][day].append(target)
+        last_update = sort_key(target)
+        grouped_results[last_update.year][last_update.month][last_update.day].append(target)
 
     for year in sorted(grouped_results.keys(), reverse=True):
-        quarto_content += f'\n## {year}年\n\n'
+        content += f'\n## {year}年\n\n'
         for month in sorted(grouped_results[year].keys(), reverse=True):
-            quarto_content += f'\n### {year}年{month}月\n\n'
+            content += f'### {year}年{month}月\n\n'
             for day in sorted(grouped_results[year][month].keys(), reverse=True):
-                quarto_content += f'\n#### {year}年{month}月{day}日\n\n'
-                for target in sorted(grouped_results[year][month][day], key=lambda x: x['last_update'], reverse=True):
-                    formatted_time = target['last_update'].astimezone(jst).strftime("%Y年%m月%d日、%H:%M(JST)")
-                    archive_link = f"[🪦]({target['archive_url']}){{.external target=\"_blank\"}}" if target['archive_url'] else ""
-                    quarto_content += f"* {formatted_time}、[{target['owner']}]({target['ownerurl']}){{.external target=\"_blank\"}} の [{target['title']}]({target['url']}){{.external target=\"_blank\"}} が更新されました。{archive_link} ([💾]({target['qmd_name']}.qmd){{.external target=\"_blank\"}})\n"
+                content += f'#### {year}年{month}月{day}日\n\n'
+                for target in sorted(grouped_results[year][month][day], key=sort_key, reverse=True):
+                    formatted_time = sort_key(target).strftime("%Y年%m月%d日 %H時%M分(日本時間)")
+                    archive_link = f"[🪦]({target['archive_url']}){{.external target=\"_blank\"}}" if target.get('archive_url') else ""
+                    content += f"* {formatted_time}、[{target['owner']}]({target['ownerurl']}){{.external target=\"_blank\"}} の [{target['title']}]({target['url']}){{.external target=\"_blank\"}} が更新されました。{archive_link} ([💾]({target['qmd_name']}.qmd){{.external target=\"_blank\"}})\n"
 
-    quarto_content += '\n# 全ての更新履歴\n\n'
+    content += '\n# 全ての更新履歴\n\n'
     for target in qmd_targets:
-        quarto_content += f"* [{target['owner']} の {target['title']}]({target['qmd_name']}.qmd){{.external target=\"_blank\"}}\n"
+        content += f"* [{target['owner']} の {target['title']}]({target['qmd_name']}.qmd){{.external target=\"_blank\"}}\n"
 
-    return quarto_content
+    return content
 
-def generate_qmd_from_db(db_name):
-    """データベースからデータを取得し、Quartoファイル(glc.qmd)を生成する"""
-    updated_targets = get_updated_targets(db_name)
-    if not updated_targets:
-        print("更新されたターゲットの情報が取得できませんでした。", file=sys.stderr)
+def process_qmd_updates(db_name):
+    conn = get_db_connection(db_name)
+    if conn is None:
+        logger.error("データベース接続の取得に失敗しました。")
         return
-
-    qmd_targets = get_qmd_targets(db_name)
-    if not qmd_targets:
-        print("QMDターゲットの情報が取得できませんでした。", file=sys.stderr)
-        return
-
-    quarto_content = generate_quarto_content(updated_targets, qmd_targets)
 
     try:
-        with open('glc.qmd', 'w', encoding='utf-8') as f:
-            f.write(quarto_content)
-        print("glc.qmd ファイルが生成されました。", file=sys.stderr)
-    except IOError as e:
-        print(f"glc.qmd ファイルの書き込みエラー: {e}", file=sys.stderr)
+        cursor = conn.cursor(dictionary=True)
+        
+        # 更新されたターゲットを取得
+        cursor.execute("SELECT * FROM updated_targets_view")
+        updated_targets = cursor.fetchall()
 
-def main():
-    load_dotenv()  # .env ファイルから環境変数を読み込む
-    print(f"DB_HOST: {os.getenv('DB_HOST')}")
-    print(f"DB_USER: {os.getenv('DB_USER')}")
-    print(f"DB_PASSWORD: {'*' * len(os.getenv('DB_PASSWORD')) if os.getenv('DB_PASSWORD') else 'Not set'}")
-    parser = argparse.ArgumentParser(description="Generate Quarto output for GLC")
+        if not updated_targets:
+            logger.info("更新されたターゲットはありません。QMDファイルは生成しません。")
+            return
+
+        # QMDターゲットを取得
+        cursor.execute("SELECT * FROM qmd_view")
+        qmd_targets = cursor.fetchall()
+
+        # 個別のQMDファイルを生成
+        for target in qmd_targets:
+            qmd_content = generate_qmd_content(updated_targets, target['qmd_name'], target['title'], target['owner'])
+            if qmd_content:
+                with open(f"{target['qmd_name']}.qmd", 'w', encoding='utf-8') as f:
+                    f.write(qmd_content)
+                logger.info(f"{target['qmd_name']}.qmd ファイルを生成しました。")
+
+        # トップページを生成
+        top_page_content = generate_top_page_content(updated_targets, qmd_targets)
+        with open(TOP_PAGE_FILENAME, 'w', encoding='utf-8') as f:
+            f.write(top_page_content)
+        logger.info(f"{TOP_PAGE_FILENAME} ファイルを生成しました。")
+
+    except Exception as e:
+        logger.error(f"QMD更新処理中にエラーが発生: {str(e)}")
+    finally:
+        cursor.close()
+        conn.close()
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Generate QMD files for updated targets")
     parser.add_argument("--db", required=True, help="Database name")
     args = parser.parse_args()
 
-    generate_qmd_from_db(args.db)
-
-if __name__ == "__main__":
-    main()
+    process_qmd_updates(args.db)

@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # glc_utils.py
 
 import os
@@ -33,28 +34,6 @@ def calculate_sha3_512(content):
     """コンテンツのSHA3-512ハッシュ値を計算します。"""
     import hashlib
     return hashlib.sha3_512(content.encode('utf-8')).hexdigest()
-
-def compress_scraping_results(db_name):
-    """スクレイピング結果テーブルから重複したレコードを削除します。"""
-    conn = get_db_connection(db_name)
-    if conn is None:
-        return
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            DELETE t1 FROM scraping_results t1
-            INNER JOIN scraping_results t2
-            WHERE t1.id < t2.id AND t1.target_id = t2.target_id AND t1.last_content = t2.last_content
-        """)
-        deleted_count = cursor.rowcount
-        conn.commit()
-        print(f"圧縮完了: {deleted_count}件の重複レコードを削除しました。")
-    except Exception as e:
-        print(f"圧縮中にエラーが発生しました: {str(e)}")
-        conn.rollback()
-    finally:
-        cursor.close()
-        conn.close()
 
 def check_url_status(url, timeout=10):
     """URLのステータスコードをチェックします。"""
@@ -96,28 +75,13 @@ def archive_with_custom_user_agent(url, user_agent):
 
     return result
 
-def load_toot_config():
-    """Mastodonのトゥート設定を読み込みます。"""
-    config_path = os.path.expanduser('~/.config/toot/config.json')
-    with open(config_path, 'r') as f:
-        config = json.load(f)
-    active_user = config['active_user']
-    user_config = config['users'][active_user]
-    app_config = config['apps'][user_config['instance']]
-    return {
-        'access_token': user_config['access_token'],
-        'base_url': app_config['base_url'],
-        'client_id': app_config['client_id'],
-        'client_secret': app_config['client_secret']
-    }
-
 def fetch_url_content(url, user_agent=None):
     headers = {'User-Agent': user_agent} if user_agent else {}
     try:
         response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
-        return response.content.decode('utf-8', errors='replace')
-    except requests.exceptions.RequestException as e:
+        return response.text
+    except requests.RequestException as e:
         print(f"URL取得エラー ({url}): {e}")
         return None
 
@@ -139,9 +103,10 @@ def scrape_content(content, tag, tag_id, tag_class):
         return None
 
 def get_initial_content(url, check_lastmodified, tag, tag_id, tag_class, user_agent):
+    headers = {'User-Agent': user_agent}
     if check_lastmodified:
         try:
-            response = requests.head(url, headers={'User-Agent': user_agent}, timeout=30)
+            response = requests.head(url, headers=headers, timeout=30)
             response.raise_for_status()
             last_modified = response.headers.get('Last-Modified')
             if last_modified:
@@ -150,7 +115,7 @@ def get_initial_content(url, check_lastmodified, tag, tag_id, tag_class, user_ag
             else:
                 print(f"Last-Modifiedヘッダーがありません: {url}")
                 return None, None, None
-        except requests.exceptions.RequestException as e:
+        except requests.RequestException as e:
             print(f"URL取得エラー ({url}): {e}")
             return None, None, None
     else:
@@ -166,3 +131,37 @@ def get_initial_content(url, check_lastmodified, tag, tag_id, tag_class, user_ag
         last_update = datetime.now(timezone.utc)
         content_hash = calculate_sha3_512(scraped_content)
         return scraped_content, last_update, content_hash
+
+def sort_key(target):
+    jst = pytz.timezone('Asia/Tokyo')
+    last_update = target['last_update']
+    if isinstance(last_update, str):
+        last_update = datetime.fromisoformat(last_update.replace('Z', '+00:00'))
+    elif isinstance(last_update, datetime):
+        if last_update.tzinfo is None:
+            last_update = last_update.replace(tzinfo=timezone.utc)
+    return last_update.astimezone(jst)
+
+# glc_utils.py に追加
+
+def compress_scraping_results(db_name):
+    """スクレイピング結果テーブルから重複したレコードを削除します。"""
+    conn = get_db_connection(db_name)
+    if conn is None:
+        return
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            DELETE t1 FROM scraping_results t1
+            INNER JOIN scraping_results t2
+            WHERE t1.id < t2.id AND t1.target_id = t2.target_id AND t1.last_content = t2.last_content
+        """)
+        deleted_count = cursor.rowcount
+        conn.commit()
+        print(f"圧縮完了: {deleted_count}件の重複レコードを削除しました。")
+    except Exception as e:
+        print(f"圧縮中にエラーが発生しました: {str(e)}")
+        conn.rollback()
+    finally:
+        cursor.close()
+        conn.close()
