@@ -17,8 +17,8 @@ def archive_and_save(db_name, target_id, url):
 
     try:
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT agent FROM user_agents ORDER BY RAND() LIMIT 1")
-        user_agent = cursor.fetchone()['agent']
+        user_agent = get_random_user_agent(conn)
+        
 
         result = archive_with_custom_user_agent(url, user_agent)
         if result['success']:

@@ -165,3 +165,13 @@ def compress_scraping_results(db_name):
     finally:
         cursor.close()
         conn.close()
+
+def get_random_user_agent(conn):
+    """ランダムなユーザーエージェントを取得します。"""
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT agent FROM user_agents ORDER BY RAND() LIMIT 1")
+        result = cursor.fetchone()
+        return result['agent'] if result else None
+    finally:
+        cursor.close()

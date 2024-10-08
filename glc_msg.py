@@ -139,17 +139,23 @@ def process_updates(db_name, updated_targets, no_toot=False):
         conn.close()
     
 
+
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="SNSへのメッセージ投稿と更新処理")
-    parser.add_argument("--db", help="データベース名", required=True)
-    parser.add_argument("--no-toot", action="store_true", help="メッセージを実際に送信しない")
+    parser = argparse.ArgumentParser(description="Send messages for updated targets")
+    parser.add_argument("--db", required=True, help="Database name")
+    parser.add_argument("--no-toot", action="store_true", help="Don't actually send messages, just print them")
     args = parser.parse_args()
 
     conn = get_db_connection(args.db)
     if conn:
-        # updated_targetsの取得ロジックをここに実装
-        updated_targets = []  # ダミーデータ、実際の実装に置き換える
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM updated_targets_view")
+        updated_targets = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
         process_updates(args.db, updated_targets, args.no_toot)
     else:
         logger.error("データベース接続の取得に失敗しました。")
+    
