@@ -4,6 +4,7 @@ project:
 
 website:
   title: "魔狸アンテナ"
+  favicon: favicon.svg
   site-url: https://tanukima.github.io/glc/
   google-analytics: "G-4G27MWJGGT"
   navbar:
