@@ -43,7 +43,6 @@ def generate_qmd_content(updated_targets, qmd_name, title, owner):
 def generate_top_page_content(updated_targets, qmd_targets):
     content = MSG_CONFIG['QuartoContent']['top_page_yaml'] + "\n\n"
     content += MSG_CONFIG['QuartoContent']['top_page_header'] + "\n\n"
-    content += "# 最新の更新情報\n\n"
 
     grouped_results = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     for target in updated_targets:
