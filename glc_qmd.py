@@ -4,6 +4,13 @@
 # - QMDファイル生成機能を担当
 
 import yaml
+
+import sys
+import os
+
+# glc_csr.pyのディレクトリをPYTHONPATHに追加
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from glc_csr import compress_scraping_results
 import logging
 from collections import defaultdict
 from glc_utils import get_db_connection, sort_key
@@ -58,7 +65,11 @@ def generate_top_page_content(updated_targets, qmd_targets):
 
     return content
 
+
 def process_qmd_updates(db_name):
+    # スクレイピング結果の圧縮を実行
+    compress_scraping_results(db_name)
+
     conn = get_db_connection(db_name)
     if conn is None:
         logger.error("データベース接続の取得に失敗しました。")
@@ -98,6 +109,7 @@ def process_qmd_updates(db_name):
     finally:
         cursor.close()
         conn.close()
+
 
 if __name__ == "__main__":
     import argparse
