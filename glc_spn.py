@@ -49,30 +49,43 @@ class URLArchiver:
         self.last_archive_time = time.time()
         self.process_next()
 
-    def archive_and_save(self, target_id, url):
-        conn = get_db_connection(self.db_name)
-        if conn is None:
-            raise Exception("[glc_spn.py] データベース接続の取得に失敗しました。")
+    
 
-        try:
-            user_agent = get_random_user_agent(conn)
-            if user_agent is None:
-                raise Exception("[glc_spn.py] ユーザーエージェントの取得に失敗しました。")
+def archive_and_save(db_name, target_id, url, max_retries=3):
+    conn = get_db_connection(db_name)
+    if conn is None:
+        logger.error("[glc_spn.py] データベース接続の取得に失敗しました。")
+        return None
 
-            archived_url = savepagenow.capture(url, user_agent=user_agent)
+    try:
+        for attempt in range(max_retries):
+            try:
+                user_agent = get_random_user_agent(conn)
+                if user_agent is None:
+                    logger.error("[glc_spn.py] ユーザーエージェントの取得に失敗しました。")
+                    return None
 
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO archive_urls (target_id, archive_url, created_at)
-                VALUES (%s, %s, NOW())
-                ON DUPLICATE KEY UPDATE archive_url = VALUES(archive_url), created_at = NOW()
-            """, (target_id, archived_url))
-            conn.commit()
+                archived_url = savepagenow.capture(url, user_agent=user_agent)
+                logger.info(f"[glc_spn.py] アーカイブ成功: {url}")
 
-            return archived_url
-        finally:
-            if conn:
-                conn.close()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO archive_urls (target_id, archive_url, created_at)
+                    VALUES (%s, %s, NOW())
+                    ON DUPLICATE KEY UPDATE archive_url = VALUES(archive_url), created_at = NOW()
+                """, (target_id, archived_url))
+                conn.commit()
+                return archived_url
+            except Exception as e:
+                logger.error(f"[glc_spn.py] アーカイブ試行 {attempt+1}/{max_retries} 失敗: {url}, エラー: {str(e)}")
+                if attempt == max_retries - 1:
+                    logger.error(f"[glc_spn.py] アーカイブ失敗: {url}, 最大リトライ回数に達しました。")
+                    return None
+    finally:
+        if conn:
+            conn.close()
+    
+    
 
 def archive_updated_urls(db_name, updated_targets):
     archiver = URLArchiver(db_name)

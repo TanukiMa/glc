@@ -25,6 +25,7 @@ def set_log_level(debug):
     logger.setLevel(logging.DEBUG if debug else logging.INFO)
 
 
+
 def process_targets(db_name, force=False, no_toot=False, debug=False):
     if not force and not is_within_time_range():
         logger.warning("Execution outside local time 7:00-19:00 requires --force option.")
@@ -58,8 +59,11 @@ def process_targets(db_name, force=False, no_toot=False, debug=False):
             archive_updated_urls(db_name, updated_targets)
 
             # メッセージの送信
-            updated_qmd_names = [target['qmd_name'] for target in updated_targets]
-            process_updates(db_name, updated_qmd_names, no_toot)
+            updated_qmd_names = [target['qmd_name'] for target in updated_targets if 'qmd_name' in target]
+            if updated_qmd_names:
+                process_updates(db_name, updated_qmd_names, no_toot)
+            else:
+                logger.warning("更新されたターゲットに qmd_name が含まれていません。")
 
         # QMDファイルの生成
         process_qmd_updates(db_name)
@@ -74,6 +78,7 @@ def process_targets(db_name, force=False, no_toot=False, debug=False):
     finally:
         if conn:
             conn.close()
+    
     
 
 def main():

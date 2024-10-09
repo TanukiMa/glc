@@ -11,17 +11,19 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
+
 def check_updates(conn, debug=False):
     cursor = conn.cursor(dictionary=True)
     updated_targets = []
 
     try:
-        cursor.execute("SELECT id, url FROM scraping_targets")
+        cursor.execute("SELECT id, url, qmd_name FROM scraping_targets")
         targets = cursor.fetchall()
 
         for target in targets:
             target_id = target['id']
             target_url = target['url']
+            target_qmd_name = target['qmd_name']
             
             cursor.execute("""
                 SELECT last_content, last_update
@@ -38,10 +40,15 @@ def check_updates(conn, debug=False):
                 previous = results[1]
                 
                 if previous['last_content'] is not None and latest['last_content'] != previous['last_content']:
-                    updated_targets.append({"id": target_id, "url": target_url})
+                    updated_targets.append({
+                        "id": target_id,
+                        "url": target_url,
+                        "qmd_name": target_qmd_name
+                    })
 
         if debug:
             logger.debug(f"[glc_diff.py] Updated targets: {json.dumps(updated_targets, indent=2)}")
+            logger.debug(f"[glc_diff.py] Total updated targets: {len(updated_targets)}")
 
     except Exception as e:
         logger.error(f"[glc_diff.py] 更新チェック中にエラーが発生しました: {e}")
@@ -49,6 +56,7 @@ def check_updates(conn, debug=False):
         cursor.close()
 
     return updated_targets
+    
     
 
 def main(db_name, debug=False):
