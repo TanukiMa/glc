@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # glc_msg.py
-# Version 5.0.1
-# - SNSへのメッセージ投稿機能のみを担当
+# Version 7.0.0
+# - 更新検出されたURLのqmd_nameに基づいてqmd_name_viewを参照し、メッセージを作成
 
 import os
 import yaml
@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from mastodon import Mastodon
 from atproto import Client as AtprotoClient
 from twikit import Client as TwitterClient
-from glc_utils import get_db_connection, sort_key
+from glc_utils import get_db_connection
 
 # 環境変数の読み込みとロギングの設定
 load_dotenv()
@@ -28,9 +28,9 @@ def load_msg_config():
 
 MSG_CONFIG = load_msg_config()
 
-def format_message(target_info, formatted_time):
+def format_message(target_info):
     return MSG_CONFIG['Message']['format'].format(
-        time=formatted_time,
+        time=target_info['last_update'].strftime("%Y年%m月%d日 %H時%M分(日本時間)"),
         owner=target_info['owner'],
         title=target_info['title'],
         url=target_info['url']
@@ -83,79 +83,48 @@ def send_tweet(message, no_toot=False):
     except Exception as e:
         logger.error(f"Twitterへの投稿に失敗しました: {str(e)}, 送信内容: {message}")
 
-def send_messages(updated_targets, no_toot=False):
-    formatted_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    for target in updated_targets:
-        message = format_message(target, formatted_time)
-        send_toot(message, no_toot)
-        send_bluesky(message, no_toot)
-        send_tweet(message, no_toot)
-
-def generate_qmd_content(updated_targets, qmd_name, title, owner):
-    # QMDコンテンツ生成ロジックをここに実装
-    pass
-
-def generate_top_page_content(updated_targets, qmd_targets):
-    # トップページコンテンツ生成ロジックをここに実装
-    pass
-
-
-def process_updates(db_name, updated_targets, no_toot=False):
-    if not updated_targets or not isinstance(updated_targets, list):
-        logger.info("[glc_msg.py] 更新されたターゲットはありません。")
-        return
-
+def process_updates(db_name, updated_qmd_names, no_toot=False):
     conn = get_db_connection(db_name)
     if conn is None:
-        logger.error("[glc_msg.py] データベース接続の取得に失敗しました。")
+        logger.error("データベース接続の取得に失敗しました。")
         return
 
     try:
         cursor = conn.cursor(dictionary=True)
         
-        # QMDターゲットを取得
-        cursor.execute("SELECT * FROM qmd_view")
-        qmd_targets = cursor.fetchall()
-
-        # メッセージを送信
-        send_messages(updated_targets, no_toot)
-
-        # 個別のQMDファイルを生成
-        for target in qmd_targets:
-            qmd_content = generate_qmd_content(updated_targets, target['qmd_name'], target['title'], target['owner'])
-            if qmd_content:
-                with open(f"{target['qmd_name']}.qmd", 'w', encoding='utf-8') as f:
-                    f.write(qmd_content)
-
-        # トップページを生成
-        top_page_content = generate_top_page_content(updated_targets, qmd_targets)
-        with open(MSG_CONFIG['Files']['top_page_filename'], 'w', encoding='utf-8') as f:
-            f.write(top_page_content)
+        for qmd_name in updated_qmd_names:
+            # qmd_name_viewから最新の2行を取得
+            cursor.execute(f"SELECT * FROM {qmd_name}_view ORDER BY last_update DESC LIMIT 2")
+            rows = cursor.fetchall()
+            
+            if len(rows) < 2:
+                logger.info(f"{qmd_name}_view に十分なデータがありません。スキップします。")
+                continue
+            
+            latest = rows[0]
+            previous = rows[1]
+            
+            # 最新行と最最新行が異なる場合にメッセージを送信
+            if latest != previous:
+                message = format_message(latest)
+                send_toot(message, no_toot)
+                send_bluesky(message, no_toot)
+                send_tweet(message, no_toot)
+            else:
+                logger.info(f"{qmd_name}_view の最新2行に変更がありません。メッセージは送信しません。")
 
     except Exception as e:
         logger.error(f"[glc_msg.py] 更新処理中にエラーが発生: {str(e)}")
     finally:
         cursor.close()
         conn.close()
-    
-
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Send messages for updated targets")
     parser.add_argument("--db", required=True, help="Database name")
+    parser.add_argument("--qmd_names", required=True, nargs='+', help="List of updated qmd_names")
     parser.add_argument("--no-toot", action="store_true", help="Don't actually send messages, just print them")
     args = parser.parse_args()
 
-    conn = get_db_connection(args.db)
-    if conn:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM updated_targets_view")
-        updated_targets = cursor.fetchall()
-        cursor.close()
-        conn.close()
-
-        process_updates(args.db, updated_targets, args.no_toot)
-    else:
-        logger.error("データベース接続の取得に失敗しました。")
-    
+    process_updates(args.db, args.qmd_names, args.no_toot)

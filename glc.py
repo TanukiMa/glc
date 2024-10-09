@@ -1,8 +1,7 @@
-from glc_qmd import generate_qmd_content, process_qmd_updates
 #!/usr/bin/env python3
 # glc.py
-# Version 3.4.0
-# - compress_scraping_resultsを実行開始時と終了時に追加
+# Version 3.5.0
+# - 処理順序の変更: glc_csr.py を3回実行し、glc_diff.py, glc_msg.py, glc_qmd.py の実行順序を調整
 
 import os
 import sys
@@ -14,6 +13,7 @@ from glc_url import process_urls
 from glc_diff import check_updates
 from glc_spn import archive_updated_urls
 from glc_msg import process_updates
+from glc_qmd import process_qmd_updates
 from glc_csr import compress_scraping_results
 
 load_dotenv()
@@ -35,16 +35,21 @@ def process_targets(db_name, force=False, no_toot=False, debug=False):
         if conn is None:
             raise Exception("データベース接続の取得に失敗しました。")
 
-        # スクレイピング結果の圧縮を実行
-        logger.info("スクレイピング結果の圧縮を開始します。")
+        # 1回目: スクレイピング結果の圧縮を実行
+        logger.info("スクレイピング結果の初期圧縮を開始します。")
         compress_scraping_results(db_name)
-        logger.info("スクレイピング結果の圧縮が完了しました。")
+        logger.info("スクレイピング結果の初期圧縮が完了しました。")
 
         # URLの処理
         process_urls(conn)
 
         # 更新の確認
         updated_targets = check_updates(conn, debug)
+
+        # 2回目: スクレイピング結果の圧縮を実行
+        logger.info("スクレイピング結果の中間圧縮を開始します。")
+        compress_scraping_results(db_name)
+        logger.info("スクレイピング結果の中間圧縮が完了しました。")
 
         if updated_targets:
             logger.info(f"更新されたターゲット: {updated_targets}")
@@ -53,12 +58,16 @@ def process_targets(db_name, force=False, no_toot=False, debug=False):
             archive_updated_urls(db_name, updated_targets)
 
             # メッセージの送信
-            process_updates(db_name, updated_targets, no_toot)
+            updated_qmd_names = [target['qmd_name'] for target in updated_targets]
+            process_updates(db_name, updated_qmd_names, no_toot)
 
-            # QMDファイルの生成
-            process_qmd_updates(db_name)
-        else:
-            logger.info("更新されたターゲットはありません。")
+        # QMDファイルの生成
+        process_qmd_updates(db_name)
+
+        # 3回目: スクレイピング結果の圧縮を実行
+        logger.info("スクレイピング結果の最終圧縮を開始します。")
+        compress_scraping_results(db_name)
+        logger.info("スクレイピング結果の最終圧縮が完了しました。")
 
     except Exception as e:
         logger.error(f"処理中に予期せぬエラーが発生しました: {e}")
@@ -66,11 +75,6 @@ def process_targets(db_name, force=False, no_toot=False, debug=False):
         if conn:
             conn.close()
     
-
-        # 終了時の圧縮
-        logger.info("スクレイピング結果の最終圧縮を開始します。")
-        compress_scraping_results(db_name, debug)
-        logger.info("スクレイピング結果の最終圧縮が完了しました。")
 
 def main():
     parser = argparse.ArgumentParser(description="Webページの更新をチェックし、更新があればデータベースに記録します。")
