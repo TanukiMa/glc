@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 # urljson.py
-# Version 1.1.0
+# Version 1.2.0
 # JSON import and export functions for URL management
-# 修正内容: 新しいqmd_nameが生成された際に、対応するビューを作成する機能を追加
+# 修正内容: glc_spn.pyの変更に合わせて更新、get_random_user_agentの使用を追加
 
 import json
 import argparse
-from glc_utils import get_db_connection, get_initial_content, calculate_sha3_512
-from glc_spn import archive_and_save
 import time
 import os
 from dotenv import load_dotenv
 import mysql.connector
+from glc_utils import get_db_connection, get_initial_content, calculate_sha3_512, get_random_user_agent
+from glc_spn import URLArchiver
 
 load_dotenv()
 
@@ -34,7 +34,8 @@ def archive_url(db_name, target_id, url):
     current_time = time.time()
     if current_time - last_archive_time < 20:
         time.sleep(20 - (current_time - last_archive_time))
-    archive_url = archive_and_save(db_name, target_id, url)
+    archiver = URLArchiver(db_name)
+    archive_url = archiver.archive_and_save(target_id, url)
     last_archive_time = time.time()
     return archive_url
 
@@ -107,8 +108,7 @@ def add_urls_from_json(db_name, json_file):
             cursor.execute("SELECT LAST_INSERT_ID()")
             target_id = cursor.fetchone()[0]
 
-            cursor.execute("SELECT agent FROM user_agents ORDER BY RAND() LIMIT 1")
-            user_agent = cursor.fetchone()[0]
+            user_agent = get_random_user_agent(conn)
             last_content, last_update, content_hash = get_initial_content(
                 url_data['url'],
                 check_lastmodified,

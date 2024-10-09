@@ -1,86 +1,93 @@
 #!/usr/bin/env python3
 # glc_spn.py
-# Version 2.2.0
-# - archive_updated_urlsの修正：整数型のtarget_idを正しく処理するように変更
+# Version 3.0.0
+# - Added URL queuing, 20-second interval, and error handling
 
 import logging
-from glc_utils import get_db_connection, archive_with_custom_user_agent
+import savepagenow
+import requests
+import time
+from queue import Queue
+from threading import Timer
+from glc_utils import get_db_connection, get_random_user_agent
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def archive_and_save(db_name, target_id, url):
-    conn = get_db_connection(db_name)
-    if conn is None:
-        logger.error("データベース接続の取得に失敗しました。")
-        return None
+class URLArchiver:
+    def __init__(self, db_name):
+        self.db_name = db_name
+        self.queue = Queue()
+        self.last_archive_time = 0
+        self.processing = False
 
-    try:
-        cursor = conn.cursor(dictionary=True)
-        user_agent = get_random_user_agent(conn)
-        
+    def add_url(self, target_id, url):
+        self.queue.put((target_id, url))
+        if not self.processing:
+            self.process_next()
 
-        result = archive_with_custom_user_agent(url, user_agent)
-        if result['success']:
-            cursor.execute('''
+    def process_next(self):
+        if self.queue.empty():
+            self.processing = False
+            return
+
+        self.processing = True
+        current_time = time.time()
+        wait_time = max(0, 20 - (current_time - self.last_archive_time))
+
+        Timer(wait_time, self._archive_url).start()
+
+    def _archive_url(self):
+        target_id, url = self.queue.get()
+        try:
+            archived_url = self.archive_and_save(target_id, url)
+            logger.info(f"[glc_spn.py] アーカイブ成功: {url}")
+        except Exception as e:
+            logger.error(f"[glc_spn.py] アーカイブ失敗: {url}, エラー: {str(e)}")
+            self.queue.put((target_id, url))  # 再キューイング
+
+        self.last_archive_time = time.time()
+        self.process_next()
+
+    def archive_and_save(self, target_id, url):
+        conn = get_db_connection(self.db_name)
+        if conn is None:
+            raise Exception("[glc_spn.py] データベース接続の取得に失敗しました。")
+
+        try:
+            user_agent = get_random_user_agent(conn)
+            if user_agent is None:
+                raise Exception("[glc_spn.py] ユーザーエージェントの取得に失敗しました。")
+
+            archived_url = savepagenow.capture(url, user_agent=user_agent)
+
+            cursor = conn.cursor()
+            cursor.execute("""
                 INSERT INTO archive_urls (target_id, archive_url, created_at)
                 VALUES (%s, %s, NOW())
                 ON DUPLICATE KEY UPDATE archive_url = VALUES(archive_url), created_at = NOW()
-            ''', (target_id, result['archived_url']))
+            """, (target_id, archived_url))
             conn.commit()
-            logger.info(f"アーカイブ成功: {url}")
-            return result['archived_url']
-        else:
-            logger.error(f"アーカイブ失敗: {url}, エラー: {result['error']}")
-            return None
-    except Exception as e:
-        logger.error(f"アーカイブ処理中にエラーが発生: {str(e)}")
-        conn.rollback()
-        return None
-    finally:
-        cursor.close()
-        conn.close()
+
+            return archived_url
+        finally:
+            if conn:
+                conn.close()
 
 def archive_updated_urls(db_name, updated_targets):
-    if isinstance(updated_targets, list):
-        for target in updated_targets:
-            if isinstance(target, dict):
-                archive_and_save(db_name, target['id'], target['url'])
-            elif isinstance(target, int):
-                # target_idが直接渡された場合の処理
-                conn = get_db_connection(db_name)
-                if conn:
-                    try:
-                        cursor = conn.cursor(dictionary=True)
-                        cursor.execute("SELECT url FROM scraping_targets WHERE id = %s", (target,))
-                        result = cursor.fetchone()
-                        if result:
-                            archive_and_save(db_name, target, result['url'])
-                        else:
-                            logger.error(f"Target ID {target} not found in database")
-                    finally:
-                        cursor.close()
-                        conn.close()
-    elif isinstance(updated_targets, int):
-        # 単一のtarget_idが渡された場合の処理
-        conn = get_db_connection(db_name)
-        if conn:
-            try:
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("SELECT url FROM scraping_targets WHERE id = %s", (updated_targets,))
-                result = cursor.fetchone()
-                if result:
-                    archive_and_save(db_name, updated_targets, result['url'])
-                else:
-                    logger.error(f"Target ID {updated_targets} not found in database")
-            finally:
-                cursor.close()
-                conn.close()
-    else:
-        logger.error("Invalid type for updated_targets")
+    archiver = URLArchiver(db_name)
+    for target in updated_targets:
+        archiver.add_url(target['id'], target['url'])
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Archive updated URLs")
+    parser.add_argument("--db", required=True, help="Database name")
+    args = parser.parse_args()
+
     # テスト用のコード
-    db_name = "your_database_name"
-    updated_targets = [{"id": 1, "url": "https://example.com"}]
-    archive_updated_urls(db_name, updated_targets)
+    test_targets = [
+        {"id": 1, "url": "https://example.com"},
+        {"id": 2, "url": "https://example.org"},
+    ]
+    archive_updated_urls(args.db, test_targets)
