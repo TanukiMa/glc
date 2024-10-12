@@ -10,7 +10,7 @@ website:
   navbar:
     right:
       - icon: github
-        href: https://github.com/TanukiMa
+        href: https://github.com/TanukiMa/glc
       - icon: twitter
         href: https://twitter.com/Matanuki
 
