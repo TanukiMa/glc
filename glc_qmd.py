@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # glc_qmd.py
-# Version 1.0.1
-# - QMDファイル生成機能を担当
+# Version 1.0.2
+# - QMDファイル生成後にquarto renderを実行する機能を追加
 
 import yaml
 import sys
@@ -10,13 +10,15 @@ from datetime import datetime
 from collections import defaultdict
 import logging
 import argparse
+import subprocess
 
 # glc_csr.pyのディレクトリをPYTHONPATHに追加
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from glc_csr import compress_scraping_results
 from glc_utils import get_db_connection, sort_key
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 def load_msg_config():
@@ -67,8 +69,12 @@ def generate_top_page_content(updated_targets, qmd_targets):
 
     return content
 
-
-
+def render_qmd(qmd_filename):
+    try:
+        subprocess.run(["quarto", "render", qmd_filename], check=True)
+        logger.info(f"{qmd_filename} のレンダリングが完了しました。")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"{qmd_filename} のレンダリング中にエラーが発生しました: {e}")
 
 def process_qmd_updates(db_name):
     conn = get_db_connection(db_name)
@@ -89,25 +95,25 @@ def process_qmd_updates(db_name):
 
         # 個別のQMDファイルを生成
         for target in qmd_targets:
+            qmd_filename = f"{target['qmd_name']}.qmd"
             qmd_content = generate_qmd_content(updated_targets, target['qmd_name'], target['title'], target['owner'])
-            with open(f"{target['qmd_name']}.qmd", 'w', encoding='utf-8') as f:
+            with open(qmd_filename, 'w', encoding='utf-8') as f:
                 f.write(qmd_content)
-            logger.info(f"{target['qmd_name']}.qmd ファイルを生成しました。")
+            logger.info(f"{qmd_filename} ファイルを生成しました。")
+            render_qmd(qmd_filename)
 
         # トップページを生成
         top_page_content = generate_top_page_content(updated_targets, qmd_targets)
         with open(TOP_PAGE_FILENAME, 'w', encoding='utf-8') as f:
             f.write(top_page_content)
         logger.info(f"{TOP_PAGE_FILENAME} ファイルを生成しました。")
+        render_qmd(TOP_PAGE_FILENAME)
 
     except Exception as e:
         logger.error(f"QMD更新処理中にエラーが発生: {str(e)}")
     finally:
         cursor.close()
         conn.close()
-    
-    
-    
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate QMD files for updated targets")
