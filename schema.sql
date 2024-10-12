@@ -75,7 +75,7 @@ LEFT JOIN
 WHERE 
     t.check_lastmodified = 1 OR
     (t.check_lastmodified = 0 AND 
-     (SELECT COUNT(*) FROM scraping_results WHERE target_id = t.id) > 1)
+     (SELECT COUNT(DISTINCT last_update) FROM scraping_results WHERE target_id = t.id) > 1)
 ORDER BY 
     t.owner, t.title;
 
