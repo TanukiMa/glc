@@ -11,13 +11,13 @@
 import argparse
 import mysql.connector
 from dotenv import load_dotenv
-from glc2_spn import archive_and_save
+#from glc_spn import archive_and_save
 import time
 import os
 import json
 import string
 import secrets
-from glc_utils2 import get_db_connection, get_initial_content, calculate_sha3_512
+from glc_utils import get_db_connection, get_initial_content, calculate_sha3_512
 
 load_dotenv()
 
