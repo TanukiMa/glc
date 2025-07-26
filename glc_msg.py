@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 from dotenv import load_dotenv
 from mastodon import Mastodon
-from atproto import Client as AtprotoClient
+#from atproto import Client as AtprotoClient
 from twikit import Client as TwitterClient
 from glc_utils import get_db_connection
 
@@ -53,18 +53,18 @@ def send_toot(message, no_toot=False):
     except Exception as e:
         logger.error(f"トゥートの送信に失敗しました: {str(e)}, 送信内容: {message}")
 
-def send_bluesky(message, no_toot=False):
-    if no_toot:
-        logger.info(f"Blueskyメッセージ（送信されません）: {message}")
-        return
-
-    try:
-        client = AtprotoClient()
-        client.login(os.getenv('BLUESKY_HANDLE'), os.getenv('BLUESKY_PASSWORD'))
-        post = client.send_post(text=message)
-        logger.info(f"Blueskyへの投稿に成功しました。投稿URI: {post.uri}")
-    except Exception as e:
-        logger.error(f"Blueskyへの投稿に失敗しました: {str(e)}, 送信内容: {message}")
+#def send_bluesky(message, no_toot=False):
+#    if no_toot:
+#        logger.info(f"Blueskyメッセージ（送信されません）: {message}")
+#        return
+#
+#    try:
+#        client = AtprotoClient()
+#        client.login(os.getenv('BLUESKY_HANDLE'), os.getenv('BLUESKY_PASSWORD'))
+#        post = client.send_post(text=message)
+#        logger.info(f"Blueskyへの投稿に成功しました。投稿URI: {post.uri}")
+#    except Exception as e:
+#        logger.error(f"Blueskyへの投稿に失敗しました: {str(e)}, 送信内容: {message}")
 
 def send_tweet(message, no_toot=False):
     if no_toot:
