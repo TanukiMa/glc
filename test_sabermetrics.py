@@ -3,7 +3,7 @@
 # Unit tests for the sabermetrics module
 
 import unittest
-from sabermetrics import EraAdjustedStats
+from sabermetrics import EraAdjustedStats, demonstrate_era_adjustment
 
 
 class TestEraAdjustedStats(unittest.TestCase):
@@ -177,8 +177,6 @@ class TestDemonstrateFunction(unittest.TestCase):
     
     def test_demonstrate_returns_valid_comparison(self):
         """Test that the demonstration function returns valid data."""
-        from sabermetrics import demonstrate_era_adjustment
-        
         # Should not raise an exception
         comparison = demonstrate_era_adjustment()
         

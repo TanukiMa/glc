@@ -68,6 +68,6 @@ python3 test_sabermetrics.py -v
 - `sabermetrics_example.py` - 使用例とデモンストレーション
 - `test_sabermetrics.py` - ユニットテスト
 
-## Web Scraping Monitoring (Original GLC功能)
+## Web Scraping Monitoring
 
 このリポジトリのオリジナル機能は、Webページの更新を監視し、変更があればデータベースに記録するツールです。

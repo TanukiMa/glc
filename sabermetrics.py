@@ -3,6 +3,9 @@
 # Module for calculating era-adjusted batting statistics
 # Addresses the concept that a .280 batting average in different eras has different values
 
+# Small epsilon value for floating-point comparisons
+EPSILON = 1e-10
+
 class EraAdjustedStats:
     """
     Class to calculate era-adjusted batting statistics.
@@ -42,7 +45,7 @@ class EraAdjustedStats:
         if league_avg_ba is None:
             league_avg_ba = self.league_avg_ba
         
-        if league_avg_ba == 0:
+        if abs(league_avg_ba) < EPSILON:
             raise ValueError("League average batting average cannot be 0")
         
         return (player_ba / league_avg_ba) * 100
@@ -92,7 +95,7 @@ class EraAdjustedStats:
         Returns:
             float: Normalized stat (Plus statistic)
         """
-        if league_avg_stat == 0:
+        if abs(league_avg_stat) < EPSILON:
             raise ValueError("League average stat cannot be 0")
         
         return (player_stat / league_avg_stat) * 100
